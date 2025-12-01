@@ -1,59 +1,94 @@
 <?php
-
 require_once '../config/Database.php';
 
-class User {
-    protected $db;
-    protected $table = 'users';
+abstract class User {
+    protected $conn;
+    protected $table_name = "users";
 
     public $id;
     public $name;
     public $email;
-    public $role;
     public $password;
+    public $role;
+    public $phone;
+    public $address;
+    public $status;
+    public $created_at;
 
-    public function __constuct() {
-        $this->db = (new Database())->connect();
+    public function __construct($db) {
+        $this->conn = $db;
     }
 
-    public function register($name, $email, $password, $role = 'customers') {
-        $hashed = password_hash($password, PASSWORD_DEFAULT);
+    public function create() {
+        $query = "INSERT INTO " . $this->table_name . " SET name=:name, email=:email, password=:password, role=:role, phone=:phone, address=:address, status=:status";
+        $stmt = $this->conn->prepare($query);
 
-        $query = "INSERT INTO $this->table (name, email, password, role) VALUES (:name, :email, :password, :role)";
+        $this->password = password_hash($this->password, PASSWORD_DEFAULT);
+        $this->status = 'active';
 
-        $stmt = $this->db->prepare($query);
-        $stmt->bindParam(':name', $name);
+        $stmt->bindParam(":name", $this->name);
         $stmt->bindParam(':email', $this->email);
-        $stmt->bindParam(':password', $hashed);
-        $stmt->bindParam(':role', $role);
+        $stmt->bindParam(':password', $this->password);
+        $stmt->bindParam(':role', $this->role);
+        $stmt->bindParam(':phone', $this->phone);
+        $stmt->bindParam(':address', $this->address);
+        $stmt->bindParam(':status', $this->status);
 
-        return $stmt->execute();
+        if ($stmt->execute()) {
+            $this->id = $this->conn->lastInsertId();
+            return true;
+        }
+        return false;
     }
 
-    public function login($email, $password){
-        $query = "SELECT * FROM $this->table WHERE email = :email LIMIT 1";
-        $stmt = $this->db->prepare($query);
-        $stmt->bindParam(':email', $email);
+    public function readOne() {
+        $query = "SELECT * FROM " . $this->table_name . " WHERE id = ? LIMIT 0,1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(1, $this->id);
         $stmt->execute();
-
-            if ($stmt->rowCount() > 0){
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-                if (password_verify($password, $user['password'])) {
-                    $this->id = $user['id'];
-                    $this->name = $user['name'];
-                    $this->email = $user['email'];
-                    $this->role = $user['role'];
-                    return true;
-                }
-            }
-            return false;
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $this->name = $row['name'];
+            $this->email = $row['email'];
+            $this->role = $row['role'];
+            $this->phone = $row['phone'];
+            $this->address = $row['address'];
+            $this->status = $row['status'];
+            $this->created_at = $row['created_at'];
+        }
     }
 
-            public function isAdmin(){
-                return $this->role === 'admin';
+    public static function authenticate($email, $password) {
+        $database = new Database();
+        $db = $database->getConnection();
+        $query = "SELECT * FROM users WHERE email = ? LIMIT 1";
+        $stmt = $db->prepare($query);
+        $stmt->bindParam(1, $email);
+        $stmt->execute();
+        if ($stmt->rowCount() > 0) {
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (password_verify($password, $row['password'])) {
+                session_start();
+                $_SESSION['user_id'] = $row['id'];
+                $_SESSION['user_name'] = $row['name'];
+                $_SESSION['user_email'] = $row['email'];
+                $_SESSION['user_role'] = $row['role'];
+                return true;
             }
+        }
+        return false;
+    }
 
-            public function isStaff(){
-                return $this->role === 'staff';
-            }
+    public static function isLoggedIn() {
+        return isset($_SESSION['user_id']);
+    }
+
+    public static function getCurrentUserRole() {
+        return $_SESSION['user_role'] ?? null;
+    }
+
+    public static function logout() {
+        session_destroy();
+    }
 }
+?>
